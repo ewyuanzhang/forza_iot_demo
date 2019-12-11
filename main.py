@@ -12,9 +12,13 @@ sock.bind((UDP_IP, UDP_PORT))
 
 telemetry_parser = TelemetryParser()
 
+counter = 0
 while True:
     data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
-    print("received message:", telemetry_parser.parse(data))
+    parsed_telemetry = telemetry_parser.parse(data)
+    counter += 1
+    if counter % 60 == 0:
+        print("received message:", parsed_telemetry)
     #time.sleep(1)
     #TODO(v-yuzha1): Data will be sent at 60fps and old data will be kept in buffer. If you want to use data in other fps, consider:
     # 1) Clear the buffer before reading
