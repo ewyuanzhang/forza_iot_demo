@@ -1,3 +1,4 @@
+# Modified from https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-python-python-file-upload
 import time
 import sys
 import iothub_client
