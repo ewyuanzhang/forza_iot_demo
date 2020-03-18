@@ -7,6 +7,7 @@ import queue
 import subprocess
 import multiprocessing as mp
 from functools import partial
+import argparse
 
 from azure.iot.device import IoTHubDeviceClient, Message
 
@@ -84,12 +85,14 @@ def check_position(curr_pos:iter, start_pos:iter, threshold:float=200**2) -> boo
 
 if __name__ == "__main__":
     
-    #####################################
-    # TODO: Get config, base_dir in args
-    #####################################
+    parser = argparse.ArgumentParser(description='Run Forza IoT demo device client.')
+    parser.add_argument('--base_dir', dest='base_dir', default=BASE_DIR,
+                    help='Base directory of the Forza IoT demo repository.')
+    parser.add_argument('--config', dest='config_path', default=CONFIG_FNAME,
+                    help='Path of the config file, relevant to BASE_DIR.')
+    args = parser.parse_args()
     
-    base_dir = BASE_DIR
-    with open(os.path.join(base_dir, CONFIG_FNAME), "r") as f:
+    with open(os.path.join(args.base_dir, args.config_path), "r") as f:
         forza_config = json.load(f)
     
     recv_ip = forza_config["device"]["receive_ip"] #"" #"10.94.72.86" # "0.0.0.0" #"127.0.0.1"
@@ -99,16 +102,12 @@ if __name__ == "__main__":
     sock.bind((recv_ip, recv_port))
     telemetry_parser = TelemetryParser()
     
-    send_ip = forza_config["device"]["send_ip"] #"" #"10.94.72.86" # "0.0.0.0" #"127.0.0.1"
+    send_ip = forza_config["device"]["send_ip"]
     send_port = forza_config["device"]["send_port"]
-    
-    #######################################
-    # TODO: Redirect the UDP packet
-    #######################################
     
     # Get the connection string
     # TODO(): Risk: the file is saved on the disk in plain text
-    conn_str_fname = os.path.join(base_dir, forza_config["iothub"]["conn_str_fname"])
+    conn_str_fname = os.path.join(args.base_dir, forza_config["iothub"]["conn_str_fname"])
     conn_str = open(conn_str_fname, 'r').read()
     
     try:
@@ -122,6 +121,9 @@ if __name__ == "__main__":
             last_put_time = time.time()
             p_upload = None
             while True:
+                ##########################################################
+                # TODO: Stoppable by ctrl+c
+                ##########################################################
                 data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
                 sock.sendto(data, (send_ip, send_port))
                 
@@ -153,21 +155,15 @@ if __name__ == "__main__":
                 if race_event_status == 2:
                     prev_telemetry = dict_telemetry
                 
+                # If a race event stops, check whetehr it is a pause or an end.
                 if race_event_status == 3:
                     # For a full 3-lap race, if
                     #     1) a race event stops (race_event_status == 3),
                     #     2) the current position is close to the start position,
                     #     3) is in the 3rd lap, and
                     #     4) race time is in a reasonable range
-                    # then it is the end of the race event; for a short race,
-                    #   it is always the end of the race.
-                    # At the end of a race event, we will
-                    #     1) rename the telemetry csv,
-                    #     2) send the telemetry csv to Azure Storage, and
-                    #     3) create a new csv
-                    # Remarks:
-                    #     1) If you want to remove the status transfer 2 -> 3, 
-                    #        remember to handle prev_telemetry == None
+                    #   then it is the end of the race event.
+                    # For a short race, it is always the end of the race.
                     if forza_config["device"].get("3_lap_race", False):
                         race_event_status = 4
                         if start_pos is None:
@@ -189,6 +185,13 @@ if __name__ == "__main__":
                             continue
                     race_event_status = 0
 
+                    # At the end of a race event, we will
+                    #     1) rename the telemetry csv,
+                    #     2) send the telemetry csv to Azure Storage, and
+                    #     3) create a new csv
+                    # Remarks:
+                    #     1) If you want to remove the status transfer 2 -> 3,
+                    #        remember to handle prev_telemetry == None
                     if p_upload is not None:
                         p_upload.join()
                     #################################################
@@ -200,7 +203,8 @@ if __name__ == "__main__":
                         upload_file_name = telemetry_parser.old_output_name
                     else:
                         upload_file_name = telemetry_parser.output_file_name
-                    ## Refresh power bi manually through service bus
+                    ## Deprecated. Refresh power bi manually through service bus.
+                    ## Now power bi will be automatically refreshed with event grid + logic app.
                     # msg_payload = {
                     #     "data": {"task": "refresh-power-bi"},
                     #     "custom_properties": {"value": "service-bus"}}
