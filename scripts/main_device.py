@@ -15,7 +15,7 @@ from forza_telemetry import TelemetryParser
 from file_upload import upload_file_through_iothub
 
 BASE_DIR = ".."
-CONFIG_FNAME = "forza_config.json"
+CONFIG_FNAME = os.path.join("config", "forza_config.json")
 
 def run_cmd(cmd_string):
     return subprocess.run(

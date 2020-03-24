@@ -4,6 +4,9 @@ import collections
 import struct
 from datetime import datetime
 
+OUTPUT_FILE_FNAME = os.path.join("..", "data", "telemetry.csv")
+TELEMETRY_FORMAT_FNAME = os.path.join("..", "config", "telemetry_format")
+
 class TelemetryParser():
     
     struct_format_map = {
@@ -22,8 +25,8 @@ class TelemetryParser():
     csv_writer = None
     
     def __init__(self,
-                 output_file_name="../data/telemetry.csv",
-                 telemetry_format_fname="../telemetry_format",
+                 output_file_name=OUTPUT_FILE_FNAME,
+                 telemetry_format_fname=TELEMETRY_FORMAT_FNAME,
                  new_output_file=False):
         self.telemetry_format_fname = telemetry_format_fname
         self._parse_telemetry_format()

@@ -6,7 +6,7 @@ import multiprocessing as mp
 from file_upload import upload_file_through_iothub
 
 BASE_DIR = ".."
-CONFIG_FNAME = "forza_config.json"
+CONFIG_FNAME = os.path.join("config", "forza_config.json")
 
 if __name__ == "__main__":
     
