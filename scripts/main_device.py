@@ -100,6 +100,7 @@ if __name__ == "__main__":
     sock = socket.socket(socket.AF_INET, # Internet
                          socket.SOCK_DGRAM) # UDP
     sock.bind((recv_ip, recv_port))
+    sock.settimeout(1)
     telemetry_parser = TelemetryParser()
     
     send_ip = forza_config["device"]["send_ip"]
@@ -121,10 +122,13 @@ if __name__ == "__main__":
             last_put_time = time.time()
             p_upload = None
             while True:
-                ##########################################################
-                # TODO: Stoppable by ctrl+c
-                ##########################################################
-                data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
+                
+                data = None
+                while not data:
+                    try:
+                        data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
+                    except socket.timeout:
+                        pass
                 sock.sendto(data, (send_ip, send_port))
                 
                 dict_telemetry = telemetry_parser.parse(data)
