@@ -24,8 +24,7 @@ def run_cmd(cmd_string):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE)
 
-def send_message(conn_str:str, q:mp.Queue):
-
+def send_message(conn_str:str, q:mp.Queue):    
     # Create instance of the device client using the authentication provider
     device_client = IoTHubDeviceClient.create_from_connection_string(conn_str)
 
@@ -37,7 +36,11 @@ def send_message(conn_str:str, q:mp.Queue):
         # Send a single message
         print("Sending message...")
         #device_client.send_message("This is a message that is being sent")
-        iothub_msg = Message(json.dumps(message["data"]))
+        iothub_msg = Message(
+            json.dumps(message["data"]),
+            content_encoding="UTF-8",
+            content_type="application/json"
+        )
         properties = message.get("custom_properties", None)
         if properties is not None:
             iothub_msg.custom_properties.update(properties)
@@ -85,6 +88,7 @@ def check_position(curr_pos:iter, start_pos:iter, threshold:float=200**2) -> boo
 
 if __name__ == "__main__":
     
+    print("Initializing.")
     parser = argparse.ArgumentParser(description='Run Forza IoT demo device client.')
     parser.add_argument('--base_dir', dest='base_dir', default=BASE_DIR,
                     help='Base directory of the Forza IoT demo repository.')
@@ -119,6 +123,7 @@ if __name__ == "__main__":
         race_event_status = 0
         start_pos = None
         try:
+            print("Ready. Waiting for messages.")
             last_put_time = time.time()
             p_upload = None
             while True:
