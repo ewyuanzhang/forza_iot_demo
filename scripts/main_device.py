@@ -11,7 +11,7 @@ import argparse
 
 from azure.iot.device import IoTHubDeviceClient, Message
 
-from forza_telemetry import TelemetryParser
+from forza_telemetry import TelemetryManager
 from file_upload import upload_file_through_iothub
 
 BASE_DIR = ".."
@@ -53,7 +53,7 @@ def send_message(conn_str:str, q:mp.Queue):
     device_client.disconnect()
     print("Disconnected.")
 
-def update_race_status(cur_status:int, race_pos_not_zero:bool, race_time_is_zero:bool) -> int:
+def update_race_status(cur_status:int, race_pos_not_zero:bool, race_time_not_zero:bool) -> int:
     # cur_status: 0: not in race event,
     #             1: race event starts, will be set to 2 outside afterwards
     #             2: race event is on,
@@ -61,7 +61,7 @@ def update_race_status(cur_status:int, race_pos_not_zero:bool, race_time_is_zero
     #             4: race event is paused
     #
     # status transfer table:
-    # cur_status, race_pos_not_zero, race_time_is_zero, next_status
+    # cur_status, race_pos_not_zero, race_time_not_zero, next_status
     #          0,                 0,                              0
     #          0,                 1,                 0,           0
     #          0,                 1,                 1,           1
@@ -69,7 +69,7 @@ def update_race_status(cur_status:int, race_pos_not_zero:bool, race_time_is_zero
     #          2,                 1,                              2
     #          4,                 0,                              4
     #          4,                 1,                              2
-    if cur_status == 0 and race_pos_not_zero is True and race_time_is_zero is True:
+    if cur_status == 0 and race_pos_not_zero is True and race_time_not_zero is True:
         return 1
     if cur_status == 2 and race_pos_not_zero is False:
         return 3
@@ -105,7 +105,7 @@ if __name__ == "__main__":
                          socket.SOCK_DGRAM) # UDP
     sock.bind((recv_ip, recv_port))
     sock.settimeout(1)
-    telemetry_parser = TelemetryParser()
+    telemetry_manager = TelemetryManager()
     
     send_ip = forza_config["device"]["send_ip"]
     send_port = forza_config["device"]["send_port"]
@@ -129,21 +129,25 @@ if __name__ == "__main__":
             while True:
                 
                 data = None
+                # Set timeout to jump out of the blocked listening,
+                # so that keyboard interupt can be receviced.
                 while not data:
                     try:
                         data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
                     except socket.timeout:
                         pass
+                # Forward the udp package to somewhere else, e.g. driving simulator.
                 if send_ip:
                     sock.sendto(data, (send_ip, send_port))
                 
-                dict_telemetry = telemetry_parser.parse(data)
+                dict_telemetry = telemetry_manager.parse(data)
                 this_put_time = time.time()
 
                 race_event_status = update_race_status(
                     race_event_status,
                     dict_telemetry["RacePosition"] != 0,
-                    dict_telemetry["CurrentRaceTime"] < 1.0)
+                    dict_telemetry["CurrentRaceTime"] > 0
+                )
                 dict_telemetry["RaceStatus"] = race_event_status
                 ##########################################################
                 # TODO: Send race_event_status to iot hub / write it to the csv
@@ -156,7 +160,8 @@ if __name__ == "__main__":
                     start_pos = (
                         dict_telemetry["PositionX"],
                         dict_telemetry["PositionY"],
-                        dict_telemetry["PositionZ"])
+                        dict_telemetry["PositionZ"]
+                    )
                     race_event_status = 2
                 
                 # If a race event is on, record the current telemetry.
@@ -174,7 +179,7 @@ if __name__ == "__main__":
                     #     4) race time is in a reasonable range
                     #   then it is the end of the race event.
                     # For a short race, it is always the end of the race.
-                    if forza_config["device"].get("3_lap_race", False):
+                    if forza_config["device"].get("3_lap_race", True):
                         race_event_status = 4
                         if start_pos is None:
                             print("Start position not found.")
@@ -182,7 +187,8 @@ if __name__ == "__main__":
                         stop_pos = (
                             prev_telemetry["PositionX"],
                             prev_telemetry["PositionY"],
-                            prev_telemetry["PositionZ"])
+                            prev_telemetry["PositionZ"]
+                        )
                         if not check_position(stop_pos, start_pos):
                             print("Stop position {} is not close to the start position {}.".format(stop_pos, start_pos))
                             continue
@@ -204,15 +210,8 @@ if __name__ == "__main__":
                     #        remember to handle prev_telemetry == None
                     if p_upload is not None:
                         p_upload.join()
-                    #################################################
-                    # TODO: Too hacky. Implement this in class like TelemetryManager.
-                    #################################################
-                    telemetry_parser.output_file_handler.close()
-                    telemetry_parser = TelemetryParser(new_output_file=True)
-                    if telemetry_parser.old_output_name is not None:
-                        upload_file_name = telemetry_parser.old_output_name
-                    else:
-                        upload_file_name = telemetry_parser.output_file_name
+                    upload_file_name = telemetry_manager.prepare_upload_file()
+                    
                     ## Deprecated. Refresh power bi manually through service bus.
                     ## Now power bi will be automatically refreshed with event grid + logic app.
                     # msg_payload = {

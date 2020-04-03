@@ -19,20 +19,10 @@ class TelemetryParser():
         "u8":"B",
     }
     struct_format = ""
-    output_file_name = None
-    output_file_handler = None
-    old_output_name = None
-    csv_writer = None
     
-    def __init__(self,
-                 output_file_name=OUTPUT_FILE_FNAME,
-                 telemetry_format_fname=TELEMETRY_FORMAT_FNAME,
-                 new_output_file=False):
+    def __init__(self, telemetry_format_fname:str):
         self.telemetry_format_fname = telemetry_format_fname
         self._parse_telemetry_format()
-        
-        self.output_file_name = output_file_name
-        self._get_csv_writer(new_output_file)
     
     def _parse_telemetry_format(self):
         telemetry_format = open(self.telemetry_format_fname, 'r').read()
@@ -48,36 +38,73 @@ class TelemetryParser():
         var_name = " ".join(var_names)
 
         self.telemetry = collections.namedtuple("telemetry", var_name)
+        self.fields = self.telemetry._fields
         
-    def parse(self, udp_data):
+    def parse(self, udp_data:str) -> dict:
         parsed_telemetry = self.telemetry(*struct.unpack(self.struct_format, udp_data))
         dict_data = self.telemetry._asdict(parsed_telemetry)
-        if self.writer is not None:
-            self.writer.writerow(dict_data)
+        return dict_data
+
+class TelemetryManager():
+    
+    telemetry_parser = None
+    output_file_name = None
+    output_file_handler = None
+    last_output_fname = None
+    csv_writer = None
+    
+    def __init__(self,
+                 output_file_name:str=OUTPUT_FILE_FNAME,
+                 telemetry_format_fname:str=TELEMETRY_FORMAT_FNAME,
+                 forced_new_file:bool=False):
+        
+        self.output_file_name = output_file_name
+        self.telemetry_parser = TelemetryParser(telemetry_format_fname)
+        self._prepare_csv_writer(forced_new_file)
+    
+    def parse(self, udp_data: str) -> dict:
+        dict_data = self.telemetry_parser.parse(udp_data)
+        if self.csv_writer is not None:
+            self.csv_writer.writerow(dict_data)
         return dict_data
     
-    def _get_csv_writer(self, new_output_file):
-        if self.output_file_name is not None:
-            output_file_exists = os.path.isfile(self.output_file_name)
-            if new_output_file or not output_file_exists:
-                # Backup the old csv if it exists
-                if output_file_exists:
-                    self._generate_old_output_name()
-                    os.rename(self.output_file_name, self.old_output_name)
-                self.output_file_handler = open(self.output_file_name, "w", newline='', encoding='utf-8')
-                self.writer = csv.DictWriter(self.output_file_handler, fieldnames=list(self.telemetry._fields))
-                self.writer.writeheader()
-            else:
-                self.output_file_handler = open(self.output_file_name, "a", newline='', encoding='utf-8')
-                self.writer = csv.DictWriter(self.output_file_handler, fieldnames=self.telemetry._fields)
+    def prepare_upload_file(self) -> str:
+        self.output_file_handler.close()
+        self._prepare_csv_writer(forced_new_file=True)
+        if self.last_output_fname is not None:
+            upload_file_name = self.last_output_fname
+        else:
+            upload_file_name = self.output_file_name
+        return upload_file_name
     
-    def _generate_old_output_name(self):
-        old_output_name = self.output_file_name.split(".")
-        old_output_name[-2] += "_"
-        old_output_name[-2] += datetime.now().strftime("%Y%m%d%H%M%S")
-        old_output_name = ".".join(old_output_name)
-        self.old_output_name = old_output_name
-        return old_output_name
+    def _prepare_csv_writer(self, forced_new_file:bool):
+        output_file_exists = os.path.isfile(self.output_file_name)
+        if forced_new_file or not output_file_exists:
+            file_dir = os.path.split(self.output_file_name)[0]
+            if not os.path.isdir(file_dir):
+                os.makedirs(file_dir)
+            # Rename the output csv if it exists
+            if output_file_exists:
+                self._generate_last_output_fname()
+                os.rename(self.output_file_name, self.last_output_fname)
+            self.output_file_handler = open(self.output_file_name, "w", newline='', encoding='utf-8')
+            self.csv_writer = csv.DictWriter(self.output_file_handler, fieldnames=list(self.telemetry_parser.fields))
+            self.csv_writer.writeheader()
+        else:
+            self.output_file_handler = open(self.output_file_name, "a", newline='', encoding='utf-8')
+            self.csv_writer = csv.DictWriter(self.output_file_handler, fieldnames=self.telemetry_parser.fields)
+
+    def _generate_last_output_fname(self) -> str:
+        # Generate file name /path/to/telemetry_yyyymmddHHMMss.csv from /path/to/telemetry.csv
+        #############################################
+        # TODO(): Will break if the output file doesn't have ext
+        #############################################
+        last_output_fname = self.output_file_name.split(".")
+        last_output_fname[-2] += "_"
+        last_output_fname[-2] += datetime.now().strftime("%Y%m%d%H%M%S")
+        last_output_fname = ".".join(last_output_fname)
+        self.last_output_fname = last_output_fname
+        return last_output_fname
     
     def __exit__(self, exc_type, exc_value, traceback):
         if self.output_file_handler is not None:
