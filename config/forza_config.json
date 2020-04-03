@@ -1,8 +1,8 @@
 {
     "device": {
-        "send_ip": "169.254.72.170",
+        "send_ip": "",
         "send_port": 6669,
-        "receive_ip": "",
+        "receive_ip": "0.0.0.0",
         "receive_port": 6669,
         "3_lap_race": false
     },

@@ -134,7 +134,8 @@ if __name__ == "__main__":
                         data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
                     except socket.timeout:
                         pass
-                sock.sendto(data, (send_ip, send_port))
+                if send_ip:
+                    sock.sendto(data, (send_ip, send_port))
                 
                 dict_telemetry = telemetry_parser.parse(data)
                 this_put_time = time.time()
