@@ -7,3 +7,4 @@ data
 notebooks
 telemetry*.csv
 conn_str.txt
+test_socket.py
