@@ -99,7 +99,7 @@ class TelemetryManager():
         output_fame, ext = os.path.splitext(self.output_file_name)
         self.last_output_fname = output_fame+"_"+datetime.now().strftime("%Y%m%d%H%M%S")
         if ext:
-            self.last_output_fname += "."+ext
+            self.last_output_fname += ext
         return self.last_output_fname
     
     def __exit__(self, exc_type, exc_value, traceback):
