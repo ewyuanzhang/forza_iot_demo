@@ -96,15 +96,11 @@ class TelemetryManager():
 
     def _generate_last_output_fname(self) -> str:
         # Generate file name /path/to/telemetry_yyyymmddHHMMss.csv from /path/to/telemetry.csv
-        #############################################
-        # TODO(): Will break if the output file doesn't have ext
-        #############################################
-        last_output_fname = self.output_file_name.split(".")
-        last_output_fname[-2] += "_"
-        last_output_fname[-2] += datetime.now().strftime("%Y%m%d%H%M%S")
-        last_output_fname = ".".join(last_output_fname)
-        self.last_output_fname = last_output_fname
-        return last_output_fname
+        output_fame, ext = os.path.splitext(self.output_file_name)
+        self.last_output_fname = output_fame+"_"+datetime.now().strftime("%Y%m%d%H%M%S")
+        if ext:
+            self.last_output_fname += "."+ext
+        return self.last_output_fname
     
     def __exit__(self, exc_type, exc_value, traceback):
         if self.output_file_handler is not None:
