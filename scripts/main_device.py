@@ -148,10 +148,10 @@ if __name__ == "__main__":
                     dict_telemetry["RacePosition"] != 0,
                     dict_telemetry["CurrentRaceTime"] > 0
                 )
+                # Write the telemetry if in a race.
+                if race_event_status in (1, 2):
+                    telemetry_manager.write(dict_telemetry)
                 dict_telemetry["RaceStatus"] = race_event_status
-                ##########################################################
-                # TODO: Send race_event_status to iot hub / write it to the csv
-                ##########################################################
 
                 # If a race event starts, record the starting X, Y, Z position.
                 # The position will be used in race event ending check.
@@ -233,9 +233,10 @@ if __name__ == "__main__":
                     p_upload.start()
 
                 # Send telemetry data to IoT Hub no faster than 1 msg/sec
+                # if race event is on.
                 # Note that power bi refreshing message will
                 # also go through this queue.
-                if this_put_time - last_put_time >= 1:
+                if race_event_status == 2 and this_put_time - last_put_time >= 1:
                     try:
                         q.put_nowait({"data": dict_telemetry})
                     except queue.Full:

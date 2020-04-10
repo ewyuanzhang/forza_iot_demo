@@ -64,9 +64,10 @@ class TelemetryManager():
     
     def parse(self, udp_data: str) -> dict:
         dict_data = self.telemetry_parser.parse(udp_data)
-        if self.csv_writer is not None:
-            self.csv_writer.writerow(dict_data)
         return dict_data
+    
+    def write(self, dict_data: dict):
+        self.csv_writer.writerow(dict_data)
     
     def prepare_upload_file(self) -> str:
         self.output_file_handler.close()
