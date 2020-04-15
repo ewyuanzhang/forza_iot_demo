@@ -5,7 +5,6 @@ import shlex
 import socket
 import queue
 import subprocess
-from multiprocessing import Queue
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import argparse
@@ -39,8 +38,9 @@ class ForzaIoTApp():
         conn_str_fname = os.path.join(base_dir, self.forza_config["iothub"]["conn_str_fname"])
         self.conn_str = open(conn_str_fname, 'r').read()
         
-        # Queue of IoT Hub message
-        self.q = Queue(1)
+        # Create instance of the device client using the authentication provider
+        self.device_client = IoTHubDeviceClient.create_from_connection_string(self.conn_str)
+        self.device_client.connect()
         
     def _setup_udp_socket(self):
         recv_ip = self.forza_config["device"]["receive_ip"] #"" #"10.94.72.86" # "0.0.0.0" #"127.0.0.1"
@@ -48,37 +48,25 @@ class ForzaIoTApp():
         self.sock = socket.socket(socket.AF_INET, # Internet
                              socket.SOCK_DGRAM) # UDP
         self.sock.bind((recv_ip, recv_port))
+        # Set timeout to jump out of the blocked listening,
+        # so that keyboard interupt can be receviced.
         self.sock.settimeout(1)
     
     @threaded
-    def _send_message_srv(self):
-        # Create instance of the device client using the authentication provider
-        device_client = IoTHubDeviceClient.create_from_connection_string(self.conn_str)
-
-        # Connect the device client.
-        device_client.connect()
-
-        message = self.q.get()
-        while message is not None: # None is the task done indicator
-            # Send a single message
-            print("Sending message...")
-            #device_client.send_message("This is a message that is being sent")
-            iothub_msg = Message(
-                json.dumps(message["data"]),
-                content_encoding="UTF-8",
-                content_type="application/json"
-            )
-            properties = message.get("custom_properties", None)
-            if properties is not None:
-                iothub_msg.custom_properties.update(properties)
-            device_client.send_message(iothub_msg)
-            print("Message successfully sent!")
-
-            message = self.q.get()
-
-        # finally, disconnect
-        device_client.disconnect()
-        print("Disconnected.")
+    def _send_message(self, message):
+        
+        # Send a single message
+        print("Sending message...")
+        iothub_msg = Message(
+            json.dumps(message["data"]),
+            content_encoding="UTF-8",
+            content_type="application/json"
+        )
+        properties = message.get("custom_properties", None)
+        if properties is not None:
+            iothub_msg.custom_properties.update(properties)
+        self.device_client.send_message(iothub_msg)
+        print("Message successfully sent!")
     
     @threaded
     def _upload_file(self, path_to_src:str, dst_fname:str):
@@ -118,113 +106,102 @@ class ForzaIoTApp():
         return cur_status
     
     def run(self):
-        try:
-            self._send_message_srv()
+        
+        race_event_status = 0
+        start_pos = None
 
-            race_event_status = 0
-            start_pos = None
+        print("Ready. Waiting for messages.")
+        last_put_time = time.time()
+        while True:
             
-            print("Ready. Waiting for messages.")
-            last_put_time = time.time()
-            p_upload = None
-            while True:
+            # Set timeout to jump out of the blocked listening,
+            # so that keyboard interupt can be receviced.
+            data = None
+            while not data:
+                try:
+                    data, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
+                except socket.timeout:
+                    pass
+            # Forward the udp package to somewhere else, e.g. driving simulator.
+            if self.send_ip:
+                self.sock.sendto(data, (self.send_ip, self.send_port))
 
-                data = None
-                # Set timeout to jump out of the blocked listening,
-                # so that keyboard interupt can be receviced.
-                while not data:
-                    try:
-                        data, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
-                    except socket.timeout:
-                        pass
-                # Forward the udp package to somewhere else, e.g. driving simulator.
-                if self.send_ip:
-                    self.sock.sendto(data, (self.send_ip, self.send_port))
+            dict_telemetry = self.telemetry_manager.parse(data)
+            this_put_time = time.time()
 
-                dict_telemetry = self.telemetry_manager.parse(data)
-                this_put_time = time.time()
+            race_event_status = self._update_race_status(
+                race_event_status,
+                dict_telemetry["RacePosition"] != 0,
+                dict_telemetry["CurrentRaceTime"] > 0
+            )
+            # Write the telemetry if in a race.
+            if race_event_status in (1, 2):
+                self.telemetry_manager.write(dict_telemetry)
+            dict_telemetry["RaceStatus"] = race_event_status
 
-                race_event_status = self._update_race_status(
-                    race_event_status,
-                    dict_telemetry["RacePosition"] != 0,
-                    dict_telemetry["CurrentRaceTime"] > 0
+            # If a race event starts, record the starting X, Y, Z position.
+            # The position will be used in race event ending check.
+            if race_event_status == 1:
+                print("Recording start position.")
+                start_pos = (
+                    dict_telemetry["PositionX"],
+                    dict_telemetry["PositionY"],
+                    dict_telemetry["PositionZ"]
                 )
-                # Write the telemetry if in a race.
-                if race_event_status in (1, 2):
-                    self.telemetry_manager.write(dict_telemetry)
-                dict_telemetry["RaceStatus"] = race_event_status
+                race_event_status = 2
 
-                # If a race event starts, record the starting X, Y, Z position.
-                # The position will be used in race event ending check.
-                if race_event_status == 1:
-                    print("Recording start position.")
-                    start_pos = (
-                        dict_telemetry["PositionX"],
-                        dict_telemetry["PositionY"],
-                        dict_telemetry["PositionZ"]
-                    )
-                    race_event_status = 2
+            # If a race event is on, record the current telemetry.
+            # It will be used to tell whether the race ends or
+            # pauses when blank data is detected.
+            if race_event_status == 2:
+                prev_telemetry = dict_telemetry
 
-                # If a race event is on, record the current telemetry.
-                # It will be used to tell whether the race ends or
-                # pauses when blank data is detected.
-                if race_event_status == 2:
-                    prev_telemetry = dict_telemetry
-
-                # If a race event stops, check whetehr it is a pause or an end.
-                if race_event_status == 3:
-                    # For a full 3-lap race, if
-                    #     1) a race event stops (race_event_status == 3),
-                    #     2) the current position is close to the start position,
-                    #     3) is in the 3rd lap, and
-                    #     4) race time is in a reasonable range
-                    #   then it is the end of the race event.
-                    # For a short race, it is always the end of the race.
-                    if self.forza_config["device"].get("3_lap_race", True):
-                        race_event_status = 4
-                        if start_pos is None:
-                            print("Start position not found.")
-                            continue
-                        stop_pos = (
-                            prev_telemetry["PositionX"],
-                            prev_telemetry["PositionY"],
-                            prev_telemetry["PositionZ"]
-                        )
-                        if not self._check_position(stop_pos, start_pos):
-                            print("Stop position {} is not close to the start position {}.".format(stop_pos, start_pos))
-                            continue
-                        stop_lap = prev_telemetry["LapNumber"]
-                        if not (stop_lap == 2): # LapNumber starts from 0
-                            print("In lap {}, not the 3rd.".format(stop_lap))
-                            continue
-                        if prev_telemetry["CurrentRaceTime"] < 2.5 * prev_telemetry["BestLap"]:
-                            print("CurrentRaceTime is {}. Too early to stop.".format(prev_telemetry["CurrentRaceTime"]))
-                            continue
-                    race_event_status = 0
-
-                    # At the end of a race event, we will
-                    #     1) rename the telemetry csv,
-                    #     2) send the telemetry csv to Azure Storage, and
-                    #     3) create a new csv
-                    # Remarks:
-                    #     1) If you want to remove the status transfer 2 -> 3,
-                    #        remember to handle prev_telemetry == None
-                    if p_upload is not None:
-                        p_upload.join()
-                    upload_file_name = self.telemetry_manager.prepare_upload_file()
-                    self._upload_file(upload_file_name, os.path.basename(upload_file_name))
-
-                # Send telemetry data to IoT Hub no faster than 1 msg/sec
-                # if race event is on.
-                if race_event_status == 2 and this_put_time - last_put_time >= 1:
-                    try:
-                        self.q.put_nowait({"data": dict_telemetry})
-                    except queue.Full:
+            # If a race event stops, check whetehr it is a pause or an end.
+            if race_event_status == 3:
+                # For a full 3-lap race, if
+                #     1) a race event stops (race_event_status == 3),
+                #     2) the current position is close to the start position,
+                #     3) is in the 3rd lap, and
+                #     4) race time is in a reasonable range
+                #   then it is the end of the race event.
+                # For a short race, it is always the end of the race.
+                if self.forza_config["device"].get("3_lap_race", True):
+                    race_event_status = 4
+                    if start_pos is None:
+                        print("Start position not found.")
                         continue
-                    last_put_time = this_put_time
-        # TODO: Do I really need this finally?
-        finally:
-            self.q.put(None)
+                    stop_pos = (
+                        prev_telemetry["PositionX"],
+                        prev_telemetry["PositionY"],
+                        prev_telemetry["PositionZ"]
+                    )
+                    if not self._check_position(stop_pos, start_pos):
+                        print("Stop position {} is not close to the start position {}.".format(stop_pos, start_pos))
+                        continue
+                    stop_lap = prev_telemetry["LapNumber"]
+                    if not (stop_lap == 2): # LapNumber starts from 0
+                        print("In lap {}, not the 3rd.".format(stop_lap))
+                        continue
+                    if prev_telemetry["CurrentRaceTime"] < 2.5 * prev_telemetry["BestLap"]:
+                        print("CurrentRaceTime is {}. Too early to stop.".format(prev_telemetry["CurrentRaceTime"]))
+                        continue
+                race_event_status = 0
+
+                # At the end of a race event, we will
+                #     1) rename the telemetry csv,
+                #     2) send the telemetry csv to Azure Storage, and
+                #     3) create a new csv
+                # Remarks:
+                #     1) If you want to remove the status transfer 2 -> 3,
+                #        remember to handle prev_telemetry == None
+                upload_file_name = self.telemetry_manager.prepare_upload_file()
+                self._upload_file(upload_file_name, os.path.basename(upload_file_name))
+
+            # Send telemetry data to IoT Hub no faster than 1 msg/sec
+            # if race event is on.
+            if race_event_status == 2 and this_put_time - last_put_time >= 1:
+                self._send_message({"data": dict_telemetry})
+                last_put_time = this_put_time
 
 if __name__ == "__main__":
     
