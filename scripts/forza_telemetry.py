@@ -18,7 +18,6 @@ class TelemetryParser():
         "s8":"b",
         "u8":"B",
     }
-    struct_format = ""
     
     def __init__(self, telemetry_format_fname:str):
         self.telemetry_format_fname = telemetry_format_fname

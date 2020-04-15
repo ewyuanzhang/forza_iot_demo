@@ -26,12 +26,6 @@ def threaded(fn):
 
 class ForzaIoTApp():
     
-    forza_config = None
-    sock = None
-    telemetry_manager = None
-    send_ip, send_port = None, None
-    conn_str = ""
-    
     def __init__(self, base_dir, config_path):
         with open(os.path.join(base_dir, config_path), "r") as f:
             self.forza_config = json.load(f)
