@@ -1,7 +1,11 @@
 import os
 import json
 import shlex
+import argparse
 import subprocess
+
+BASE_DIR = ".."
+CONFIG_FNAME = os.path.join("config", "forza_config.json")
 
 def run_cmd(cmd_string, print_result=True):
     process = subprocess.Popen(
@@ -19,8 +23,14 @@ def run_cmd(cmd_string, print_result=True):
 
 if __name__ == "__main__":
 
-    base_dir = ".."
-    with open(os.path.join(base_dir, "iothub_config.json"), "r") as f:
+    parser = argparse.ArgumentParser(description='Run Forza IoT demo device client.')
+    parser.add_argument('--base_dir', dest='base_dir', default=BASE_DIR,
+                    help='Base directory of the Forza IoT demo repository.')
+    parser.add_argument('--config', dest='config_path', default=CONFIG_FNAME,
+                    help='Path of the config file, relevant to BASE_DIR.')
+    args = parser.parse_args()
+    
+    with open(os.path.join(args.base_dir, args.config_path), "r") as f:
         forza_iot_config = json.load(f)["iothub"]
     
     forza_iot_location = forza_iot_config["location"]
@@ -28,7 +38,7 @@ if __name__ == "__main__":
     forza_iot_iothub = forza_iot_config["name"]
     forza_iot_iothub_sku = forza_iot_config["sku"]
     forza_iot_device_id = forza_iot_config["device_id"]
-    forza_iot_conn_str_path = os.path.join(base_dir, forza_iot_config["conn_str_fname"])
+    forza_iot_conn_str_path = os.path.join(args.base_dir, forza_iot_config["conn_str_fname"])
 
     ##################################################
     # Create IoT Hub
