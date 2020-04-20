@@ -46,12 +46,6 @@ class TelemetryParser():
 
 class TelemetryManager():
     
-    telemetry_parser = None
-    output_file_name = None
-    output_file_handler = None
-    last_output_fname = None
-    csv_writer = None
-    
     def __init__(self,
                  output_file_name:str=OUTPUT_FILE_FNAME,
                  telemetry_format_fname:str=TELEMETRY_FORMAT_FNAME,
@@ -60,6 +54,7 @@ class TelemetryManager():
         self.output_file_name = output_file_name
         self.telemetry_parser = TelemetryParser(telemetry_format_fname)
         self._prepare_csv_writer(forced_new_file)
+        self.last_output_fname = None
     
     def parse(self, udp_data: str) -> dict:
         dict_data = self.telemetry_parser.parse(udp_data)

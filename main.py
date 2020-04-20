@@ -11,10 +11,10 @@ import argparse
 
 from azure.iot.device import IoTHubDeviceClient, Message
 
-from forza_telemetry import TelemetryManager
-from file_upload import upload_file_through_iothub
+from utils.forza_telemetry import TelemetryManager
+from utils.file_upload import upload_file_through_iothub
 
-BASE_DIR = ".."
+BASE_DIR = "."
 CONFIG_FNAME = os.path.join("config", "forza_config.json")
 
 tp = ThreadPoolExecutor(10)  # max 10 threads
@@ -29,7 +29,10 @@ class ForzaIoTApp():
         with open(os.path.join(base_dir, config_path), "r") as f:
             self.forza_config = json.load(f)
         self._setup_udp_socket()
-        self.telemetry_manager = TelemetryManager()
+        self.telemetry_manager = TelemetryManager(
+            self.forza_config["device"]["output_fname"],
+            self.forza_config["device"]["telemetry_format_fname"]
+        )
         self.send_ip = self.forza_config["device"]["send_ip"]
         self.send_port = self.forza_config["device"]["send_port"]
 

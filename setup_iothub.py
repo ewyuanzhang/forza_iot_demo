@@ -4,7 +4,7 @@ import shlex
 import argparse
 import subprocess
 
-BASE_DIR = ".."
+BASE_DIR = "."
 CONFIG_FNAME = os.path.join("config", "forza_config.json")
 
 def run_cmd(cmd_string, print_result=True):

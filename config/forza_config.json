@@ -4,6 +4,8 @@
         "send_port": 6669,
         "receive_ip": "0.0.0.0",
         "receive_port": 6669,
+        "output_fname": "data/telemetry.csv",
+        "telemetry_format_fname": "config/telemetry_format",
         "3_lap_race": false
     },
     "iothub": {
