@@ -1,6 +1,7 @@
 name: forza_iot
 dependencies:
  - python=3.6
+ - pip
  - pip:
    - azure-iot-device
    - azure-iothub-device-client
