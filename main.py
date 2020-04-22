@@ -1,9 +1,11 @@
 import os
+import sys
 import json
 import time
 import shlex
 import socket
 import queue
+import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -16,6 +18,7 @@ from utils.file_upload import upload_file_through_iothub
 
 BASE_DIR = "."
 CONFIG_FNAME = os.path.join("config", "forza_config.json")
+LOG_FILE_NAME = 'forza_iot.log'
 
 tp = ThreadPoolExecutor(10)  # max 10 threads
 def threaded(fn):
@@ -28,6 +31,9 @@ class ForzaIoTApp():
     def __init__(self, base_dir, config_path):
         with open(os.path.join(base_dir, config_path), "r") as f:
             self.forza_config = json.load(f)
+
+        self._init_logger()
+
         self._setup_udp_socket()
         self.telemetry_manager = TelemetryManager(
             self.forza_config["device"]["output_fname"],
@@ -45,6 +51,28 @@ class ForzaIoTApp():
         self.device_client = IoTHubDeviceClient.create_from_connection_string(self.conn_str)
         self.device_client.connect()
         
+    def _init_logger(self):
+
+        self.logger = logging.getLogger(__name__)
+        if self.forza_config["device"].get("debug", False):
+            self.logger.setLevel(logging.INFO)
+        else:
+            self.logger.setLevel(logging.WARNING)
+        self.logger.handlers = []
+        formatter = logging.Formatter(
+                '%(asctime)s %(name)s %(levelname)s %(message)s',
+                "%Y-%m-%dT%H:%M:%S%z")
+        # Stream handler
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+        # File handler
+        if self.forza_config["device"].get("log_fname", None):
+            handler = logging.FileHandler(self.forza_config["device"]["log_fname"])
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+        self.telemetry_to_log = ["IsRaceOn", "RacePosition", "CurrentRaceTime", "PositionX", "PositionY", "PositionZ"]
+
     def _setup_udp_socket(self):
         recv_ip = self.forza_config["device"]["receive_ip"] #"" #"10.94.72.86" # "0.0.0.0" #"127.0.0.1"
         recv_port = self.forza_config["device"]["receive_port"]
@@ -115,6 +143,7 @@ class ForzaIoTApp():
 
         print("Ready. Waiting for messages.")
         last_put_time = time.time()
+        last_log_time = time.time()
         while True:
             
             # Set timeout to jump out of the blocked listening,
@@ -125,11 +154,20 @@ class ForzaIoTApp():
                     data, addr = self.sock.recvfrom(1024) # buffer size is 1024 bytes
                 except socket.timeout:
                     pass
+
             # Forward the udp package to somewhere else, e.g. driving simulator.
             if self.send_ip:
                 self.sock.sendto(data, (self.send_ip, self.send_port))
 
             dict_telemetry = self.telemetry_manager.parse(data)
+
+            if self.forza_config["device"].get("debug", False):
+                this_log_time = time.time()
+                if this_log_time - last_log_time > 1:
+                    self.logger.info({
+                        k:v for k, v in dict_telemetry.items() if k in self.telemetry_to_log
+                    })
+                    last_log_time = this_log_time
             this_put_time = time.time()
 
             race_event_status = self._update_race_status(

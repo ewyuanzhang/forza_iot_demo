@@ -1,6 +1,9 @@
 .ipynb_checkpoints
 __pycache__
 *.ipynb
+build
+dist
+*.spec
 
 docs
 data
@@ -8,3 +11,4 @@ notebooks
 telemetry*.csv
 conn_str.txt
 test_socket.py
+error_*
